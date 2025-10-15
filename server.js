@@ -1,5 +1,5 @@
 import net from "net";
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 
 const TCP_HOST = "localhost";
 const TCP_PORT = 3001;
@@ -10,7 +10,7 @@ let lastScanMap = new Map();
 let isCardReaderConnected = false;
 let wsClient = null;
 
-const wss = new WebSocket.Server({ port: WS_PORT });
+const wss = new WebSocketServer({ port: WS_PORT });
 
 let tcpClient = null;
 
