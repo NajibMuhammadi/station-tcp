@@ -55,6 +55,7 @@ function connectTCP() {
             .replace(/[^a-zA-Z0-9]/g, "")
             .trim();
         if (uid.includes("Deviceopenfailure")) return;
+        if (uid.includes("Portalreadyinuse")) return;
 
         const now = Date.now();
         const lastScan = lastScanMap.get(uid) || 0;
