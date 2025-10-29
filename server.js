@@ -9,16 +9,15 @@ let reconnectTimeout;
 let lastScanMap = new Map();
 let isCardReaderConnected = false;
 let wsClient = null;
+let isShuttingDown = false; // 🆕 Flag för att förhindra reconnect vid shutdown
 
 const wss = new WebSocketServer({ port: WS_PORT });
-
 let tcpClient = null;
 
 wss.on("connection", (ws) => {
     console.log("🌐 Frontend ansluten till WebSocket");
     wsClient = ws;
 
-    // ✅ Skicka aktuell TCP-status när frontend ansluter
     console.log("📤 Skickar initial status:", isCardReaderConnected);
     ws.send(
         JSON.stringify({
@@ -29,16 +28,22 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         console.log("🚪 Frontend frånkopplad från WebSocket");
-        wsClient = null;
+        if (wsClient === ws) wsClient = null;
     });
 
     ws.on("error", (err) => {
         console.error("⚠️ WebSocket-fel:", err.message);
-        wsClient = null;
+        if (wsClient === ws) wsClient = null;
     });
 });
 
 function connectTCP() {
+    // 🆕 Avbryt om vi håller på att stänga ner
+    if (isShuttingDown) {
+        console.log("⛔ Shutdown pågår - avbryter TCP-anslutning");
+        return;
+    }
+
     tcpClient = new net.Socket();
 
     tcpClient.connect(TCP_PORT, TCP_HOST, () => {
@@ -57,6 +62,7 @@ function connectTCP() {
             .toString()
             .replace(/[^a-zA-Z0-9]/g, "")
             .trim();
+
         if (uid.includes("Deviceopenfailure")) return;
         if (uid.includes("Portalreadyinuse")) return;
 
@@ -65,7 +71,6 @@ function connectTCP() {
         if (now - lastScan < 2000) return;
 
         lastScanMap.set(uid, now);
-
         console.log("📥 UID mottagen:", uid);
         sendToFrontend({ type: "tcpData", uid });
     });
@@ -81,7 +86,6 @@ function connectTCP() {
     });
 }
 
-// ==== Skicka direkt till frontend ====
 function sendToFrontend(message) {
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
         wsClient.send(JSON.stringify(message));
@@ -97,23 +101,24 @@ function sendToFrontend(message) {
     }
 }
 
-// ==== Hantera bortkoppling ====
 function handleDisconnect() {
     if (isCardReaderConnected) {
         isCardReaderConnected = false;
         console.log("❌ Card reader disconnected");
         sendToFrontend({ type: "cardReaderConnected", isOnline: false });
     }
+
     if (tcpClient) {
         tcpClient.destroy();
         tcpClient = null;
     }
+
     scheduleReconnect();
 }
 
-// ==== Automatisk återanslutning till TCP ====
 function scheduleReconnect() {
-    if (reconnectTimeout) return;
+    // 🆕 Avbryt reconnect om vi håller på att stänga ner
+    if (isShuttingDown || reconnectTimeout) return;
 
     console.log("⏱️ Schemalägger TCP-återanslutning om 10 sekunder...");
     reconnectTimeout = setTimeout(() => {
@@ -123,24 +128,73 @@ function scheduleReconnect() {
     }, 10000);
 }
 
-process.on("SIGINT", () => {
-    console.log("\nShutting down gracefully...");
+// 🆕 ===== GRACEFUL SHUTDOWN =====
+function cleanup() {
+    if (isShuttingDown) return; // Förhindra dubbel-shutdown
+
+    isShuttingDown = true;
+    console.log("\n🛑 Stänger ner servern gracefully...");
+
+    // Rensa reconnect-timer
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+        console.log("✅ Reconnect-timer rensad");
+    }
+
+    // Stäng TCP-klient
     if (tcpClient) {
         tcpClient.destroy();
+        tcpClient = null;
+        console.log("✅ TCP-klient stängd");
     }
+
+    // Stäng WebSocket-klient
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+        wsClient.close();
+        wsClient = null;
+        console.log("✅ WebSocket-klient stängd");
+    }
+
+    // Stäng WebSocket-server
     wss.close(() => {
-        console.log("WebSocket server closed.");
+        console.log("✅ WebSocket-server stängd");
+        console.log("👋 Server avstängd - port 4000 är nu fri");
         process.exit(0);
     });
 
-    if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-    }
+    // Force exit om det tar för länge
+    setTimeout(() => {
+        console.log("⚠️ Forcerad avstängning efter 5 sekunder");
+        process.exit(1);
+    }, 5000);
+}
+
+// 🆕 Lyssna på shutdown-signaler
+process.on("SIGINT", () => {
+    console.log("\n📥 SIGINT mottagen (Ctrl+C)");
+    cleanup();
 });
 
-// ==== Start ====
+process.on("SIGTERM", () => {
+    console.log("\n📥 SIGTERM mottagen");
+    cleanup();
+});
+
+process.on("uncaughtException", (err) => {
+    console.error("💥 Uncaught Exception:", err);
+    cleanup();
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("💥 Unhandled Rejection at:", promise, "reason:", reason);
+    cleanup();
+});
+
+// ===== START =====
 console.log("🌐 WebSocket-server startad på port", WS_PORT);
 console.log("🔌 Startar TCP-anslutning om 500ms...");
+console.log("💡 Tryck Ctrl+C för att stänga av servern");
 
 setTimeout(() => {
     connectTCP();
