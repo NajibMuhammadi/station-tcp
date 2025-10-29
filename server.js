@@ -1,7 +1,7 @@
 import net from "net";
 import WebSocket, { WebSocketServer } from "ws";
 
-const TCP_HOST = "station1.serima.se";
+const TCP_HOST = "localhost";
 const TCP_PORT = 3001;
 const WS_PORT = 4000;
 
