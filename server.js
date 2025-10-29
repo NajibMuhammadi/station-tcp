@@ -18,6 +18,7 @@ wss.on("connection", (ws) => {
     console.log("🌐 Frontend ansluten till station1");
     wsClient = ws;
 
+    // ✅ Skicka aktuell status när frontend ansluter
     ws.send(
         JSON.stringify({
             type: "cardReaderConnected",
@@ -45,7 +46,11 @@ function connectTCP() {
         if (!isCardReaderConnected) {
             isCardReaderConnected = true;
             console.log("✅ Card reader connected");
-            sendToFrontend({ type: "cardReaderConnected", isOnline: true });
+
+            // ⏱️ Vänta lite för att låta WebSocket-anslutningen etableras
+            setTimeout(() => {
+                sendToFrontend({ type: "cardReaderConnected", isOnline: true });
+            }, 100);
         }
     });
 
@@ -82,10 +87,12 @@ function connectTCP() {
 function sendToFrontend(message) {
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
         wsClient.send(JSON.stringify(message));
+        console.log("✉️ Meddelande skickat till frontend:", message);
     } else {
-        console.warn(
-            "⚠️ Ingen frontend ansluten – kunde inte skicka:",
-            message
+        console.log(
+            "⏳ Frontend inte redo ännu – status sparad (isCardReaderConnected:",
+            isCardReaderConnected,
+            ")"
         );
     }
 }
@@ -110,5 +117,9 @@ function scheduleReconnect() {
     }, 10000);
 }
 
-// ==== Start ====
-connectTCP();
+// ==== Vänta på WebSocket-servern innan TCP ansluts ====
+console.log("🌐 WebSocket-server startad på port", WS_PORT);
+setTimeout(() => {
+    console.log("🔌 Startar TCP-anslutning...");
+    connectTCP();
+}, 500); // Ge WebSocket-servern tid att starta
