@@ -123,6 +123,21 @@ function scheduleReconnect() {
     }, 10000);
 }
 
+process.on("SIGINT", () => {
+    console.log("\nShutting down gracefully...");
+    if (tcpClient) {
+        tcpClient.destroy();
+    }
+    wss.close(() => {
+        console.log("WebSocket server closed.");
+        process.exit(0);
+    });
+
+    if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+    }
+});
+
 // ==== Start ====
 console.log("🌐 WebSocket-server startad på port", WS_PORT);
 console.log("🔌 Startar TCP-anslutning om 500ms...");
